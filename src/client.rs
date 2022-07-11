@@ -12,7 +12,7 @@ const CLIENT_ID: &str = "f88fd03782f54480964415eb6fd1a1f8";
 pub fn get_client() -> Result<AuthCodePkceSpotify> {
     let creds = Credentials::new_pkce(CLIENT_ID);
 
-    let scopes = scopes!("user-read-playback-state");
+    let scopes = scopes!("user-follow-read");
 
     let oauth = OAuth {
         redirect_uri: REDIRECT_URI.to_string(),

@@ -1223,6 +1223,7 @@ dependencies = [
  "dirs",
  "futures",
  "rspotify",
+ "rspotify-model",
  "tokio",
 ]
 
