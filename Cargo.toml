@@ -10,6 +10,8 @@ anyhow = "1.0.58"
 clap = "3.2.8"
 dirs = "4.0.0"
 futures = "0.3.21"
+log = "0.4.17"
 rspotify = { version = "0.11.5", features = ["cli"] }
 rspotify-model = "0.11.5"
 tokio = { version = "1.19.2", features = ["full"] }
+webbrowser = "0.7.1"

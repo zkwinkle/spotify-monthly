@@ -1027,7 +1027,7 @@ dependencies = [
  "sha2",
  "thiserror",
  "url",
- "webbrowser",
+ "webbrowser 0.6.0",
 ]
 
 [[package]]
@@ -1222,9 +1222,11 @@ dependencies = [
  "clap",
  "dirs",
  "futures",
+ "log",
  "rspotify",
  "rspotify-model",
  "tokio",
+ "webbrowser 0.7.1",
 ]
 
 [[package]]
@@ -1614,6 +1616,20 @@ name = "webbrowser"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9c28b6b6a78440b02647358625e3febc90724126480b9da6a967b5f674b3554"
+dependencies = [
+ "jni",
+ "ndk-glue",
+ "url",
+ "web-sys",
+ "widestring",
+ "winapi",
+]
+
+[[package]]
+name = "webbrowser"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc6a3cffdb686fbb24d9fb8f03a213803277ed2300f11026a3afe1f108dc021b"
 dependencies = [
  "jni",
  "ndk-glue",
