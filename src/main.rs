@@ -1,47 +1,42 @@
-mod config;
+mod client;
 
-use anyhow::Result;
-use rspotify::{prelude::*, scopes, AuthCodePkceSpotify, Config, Credentials, OAuth};
+use anyhow::{Context, Result};
+use futures::stream::StreamExt;
+use rspotify::prelude::*;
+//use std::borrow::Borrow;
+
+const PLAYLIST_ID: &str = "3jkp8yVGbbIaQ5TOnFEhA9";
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let creds = Credentials::new_pkce("f88fd03782f54480964415eb6fd1a1f8");
-
-    let oauth = OAuth {
-        redirect_uri: "http://localhost:8888/callback".to_string(),
-        scopes: scopes!("user-read-recently-played"),
-        ..Default::default()
-    };
-
-    let config = Config {
-        token_cached: true,
-        token_refreshing: true,
-        cache_path: config::get_token_path()?,
-        ..Default::default()
-    };
-
-    let mut spotify = AuthCodePkceSpotify::with_config(creds.clone(), oauth.clone(), config);
+    let mut spotify = client::get_client()?;
 
     // Obtaining the access token
-    let url = spotify.get_authorize_url(None).unwrap();
-    // This function requires the `cli` feature enabled.
-    spotify.prompt_for_token(&url).await.unwrap();
+    let url = spotify.get_authorize_url(None)?;
 
-    // Running the requests
-    let history = spotify.current_playback(None, None::<Vec<_>>).await;
-    println!("Response: {:?}", history);
+    if let Err(error) = spotify.prompt_for_token(&url).await {
+        eprintln!("Authentication failed with error: {}", error);
+        eprintln!("Wiping cache and attempting re-authentication.");
+        client::remove_cache()
+            .context("Failed to wipe authentication cache while attempting to re-authenticate.")?;
+        spotify.prompt_for_token(&url).await?
+    }
 
-    // Token refreshing works as well, but only with the one generated in the
-    // previous request (they actually expire, unlike the regular code auth
-    // flow).
-    let prev_token = spotify.token.lock().await.unwrap();
-    let spotify = AuthCodePkceSpotify::new(creds, oauth);
-    *spotify.token.lock().await.unwrap() = prev_token.clone();
-    spotify.refresh_token().await.unwrap();
+    let user_playlists = spotify.current_user_playlists();
+    let playlist = user_playlists
+        .filter(|x| {
+            futures::future::ready(match x {
+                Ok(playlist) => playlist.id.as_ref() == PLAYLIST_ID,
+                _ => false,
+            })
+        })
+        .next()
+        .await;
 
-    // Running the requests again
-    let history = spotify.current_playback(None, None::<Vec<_>>).await;
-    println!("Response after refreshing token: {:?}", history);
+    match playlist {
+        Some(p) => println!("Found playlist!!:\n{:#?}", p),
+        None => println!("Couldn't find a playlist with the given ID"),
+    }
 
     Ok(())
 }
