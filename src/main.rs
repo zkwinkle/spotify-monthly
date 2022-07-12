@@ -7,12 +7,8 @@ use chrono::prelude::*;
 use futures::stream::StreamExt;
 use playlists::MonthlyPlaylist;
 use rspotify::{prelude::*, ClientResult};
-use rspotify_model::{enums::misc::Market, idtypes::PlaylistId, PlaylistItem};
-use std::{
-    collections::hash_map::{Entry, HashMap},
-    str::FromStr,
-    sync::Arc,
-};
+use rspotify_model::{enums::misc::Market, idtypes::PlaylistId, PlayableItem, PlaylistItem};
+use std::{collections::hash_map::HashMap, str::FromStr, sync::Arc};
 use tokio::sync::Mutex;
 
 //const PLAYLIST_ID: &str = "3jkp8yVGbbIaQ5TOnFEhA9";
@@ -50,8 +46,8 @@ async fn main() -> Result<()> {
     //    return Err(anyhow!("Authenticated user does not own the playlist provided. You must own the playlist chosen for this program."));
     //}
 
-    let created_playlists: Arc<Mutex<HashMap<MonthlyPlaylist, PlaylistId>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    type MonthlyHashMap = HashMap<MonthlyPlaylist, (PlaylistId, Vec<PlayableItem>)>;
+    let monthly_playlists: Arc<Mutex<MonthlyHashMap>> = Arc::new(Mutex::new(HashMap::new()));
 
     let today = Utc::today();
     let month_start: DateTime<Utc> = Utc.ymd(today.year(), today.month(), 1).and_hms(0, 0, 0);
@@ -59,46 +55,44 @@ async fn main() -> Result<()> {
     // id needs to be declared here (in the same lifetime as songs) to avoid some lifetime errors
     let id = PlaylistId::from_str(PLAYLIST_ID)?;
 
-    let songs = spotify
+    spotify
         .playlist_items(&id, None, Some(&Market::FromToken))
-        .for_each_concurrent(None, |p: ClientResult<PlaylistItem>| {
-            //let created_playlists = created_playlists.clone();
-            async {
-                if let Ok(p_item) = p {
-                    //playlists::print_item_info(&p_item);
+        .for_each_concurrent(None, |p: ClientResult<PlaylistItem>| async {
+            if let Ok(p_item) = p {
+                //playlists::print_item_info(&p_item);
+                if let Some(playable) = p_item.track {
+                    // Only local files return None from id(), we just ignore those
+                    if playable.id().is_some() {
+                        let added_at = p_item.added_at.unwrap();
+                        if added_at < month_start {
+                            let p_item_monthly =
+                                MonthlyPlaylist::new(added_at.year(), added_at.month());
 
-                    let added_at = p_item.added_at.unwrap();
-
-                    if added_at < month_start {
-                        let p_item_monthly =
-                            MonthlyPlaylist::new(added_at.year(), added_at.month());
-
-                        {
-                            let mut created_playlists = created_playlists.lock().await;
-                            // Allow because doing with Entry would be the same but less readable
-                            #[allow(clippy::map_entry)]
-                            if !created_playlists.contains_key(&p_item_monthly) {
-                                created_playlists.insert(
+                            let mut monthly_playlists = monthly_playlists.lock().await;
+                            if let Some((_, tracks)) = monthly_playlists.get_mut(&p_item_monthly) {
+                                tracks.push(playable);
+                            } else {
+                                let id = playlists::create_playlist(
+                                    &spotify,
+                                    &user.id,
+                                    PUBLIC,
                                     p_item_monthly,
-                                    playlists::create_playlist(
-                                        &spotify,
-                                        &user.id,
-                                        PUBLIC,
-                                        p_item_monthly,
-                                        FORMAT_STR,
-                                        LOCALE,
-                                    )
-                                    .await
-                                    .expect("Error cloning playlist"),
-                                );
+                                    FORMAT_STR,
+                                    LOCALE,
+                                )
+                                .await
+                                .expect("Error cloning playlist");
+                                monthly_playlists.insert(p_item_monthly, (id, vec![playable]));
                             }
-                        }
+                        };
                     }
                 }
             }
-        });
+        })
+        .await;
 
-    songs.await;
+    //TODO: Create methods to move songs that handles the adding and deleting concurrently and
+    //carry it out for all songs in `monthly_playlists` DON'T do one song at a time
 
     Ok(())
 }

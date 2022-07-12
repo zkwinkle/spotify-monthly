@@ -24,6 +24,15 @@ impl MonthlyPlaylist {
     }
 }
 
+//pub async fn add_song_to_playlist(
+//    spotify: &AuthCodePkceSpotify,
+//    playlist_id: &PlaylistId,
+//    track_id: &dyn PlayableId,
+//) -> Result<()> {
+//    Ok(())
+//}
+
+#[allow(unused_variables)]
 pub async fn create_playlist(
     spotify: &AuthCodePkceSpotify,
     user_id: &UserId,
@@ -36,12 +45,14 @@ pub async fn create_playlist(
     let date = Local.ymd(monthly.year as i32, monthly.month.number_from_month(), 1);
     let name: &str = &date.format_localized(format_str, lang).to_string();
 
-    Ok(spotify
-        .user_playlist_create(user_id, name, Some(public), Some(false), None)
-        .await?
-        .id)
+    Ok(PlaylistId::from_str("3jkp8yVGbbIaQ5TOnFEhA9")?)
+    //Ok(spotify
+    //    .user_playlist_create(user_id, name, Some(public), Some(false), None)
+    //    .await?
+    //    .id)
 }
 
+#[allow(dead_code)]
 /// Prints {name} -- {artist} | Added: %d of %b %T, at %H:%M
 /// for specified playlist item
 pub fn print_item_info(p_item: &PlaylistItem) {
