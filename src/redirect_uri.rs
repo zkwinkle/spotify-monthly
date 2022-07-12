@@ -71,7 +71,6 @@ fn handle_connection(mut stream: TcpStream) -> Option<String> {
         }
     };
 
-    println!("hi1");
     None
 }
 

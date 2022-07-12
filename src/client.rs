@@ -7,10 +7,9 @@ use std::{
 };
 
 const TOKEN_CACHE_FILE: &str = ".monthly_spotify_token_cache.json";
-const CLIENT_ID: &str = "f88fd03782f54480964415eb6fd1a1f8";
 
-pub fn get_client(port: u16) -> Result<AuthCodePkceSpotify> {
-    let creds = Credentials::new_pkce(CLIENT_ID);
+pub fn get_client(client_id: &str, port: u16) -> Result<AuthCodePkceSpotify> {
+    let creds = Credentials::new_pkce(client_id);
 
     let scopes = scopes!("playlist-modify-private", "playlist-modify-public");
 
@@ -60,10 +59,7 @@ pub async fn prompt_token_auto(
     port: u16,
 ) -> Result<()> {
     match redirect_uri::redirect_uri_web_server(spotify, url, port) {
-        Ok(code) => {
-            println!("hi");
-            spotify.request_token(&code).await.map_err(|e| anyhow!(e))
-        }
+        Ok(code) => spotify.request_token(&code).await.map_err(|e| anyhow!(e)),
         Err(e) => {
             eprintln!("{}", e);
             println!("Starting webserver failed. Continuing with manual authentication");
