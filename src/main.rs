@@ -1,3 +1,5 @@
+#![feature(box_patterns)]
+
 mod client;
 mod playlists;
 mod redirect_uri;
@@ -5,7 +7,7 @@ mod redirect_uri;
 use anyhow::{Context, Result};
 use chrono::prelude::*;
 use futures::join;
-use futures::stream::StreamExt;
+use futures::prelude::*;
 use playlists::MonthlyPlaylist;
 use rspotify::{prelude::*, ClientResult};
 use rspotify_model::{enums::misc::Market, idtypes::PlaylistId, PlayableItem, PlaylistItem};
@@ -56,7 +58,8 @@ async fn main() -> Result<()> {
 
     spotify
         .playlist_items(&playlist_id, None, Some(&Market::FromToken))
-        .for_each_concurrent(None, |p: ClientResult<PlaylistItem>| async {
+        // in series because async part gets locked anyways
+        .for_each(|p: ClientResult<PlaylistItem>| async {
             if let Ok(p_item) = p {
                 //playlists::print_item_info(&p_item);
                 if let Some(playable) = p_item.track {
@@ -90,15 +93,24 @@ async fn main() -> Result<()> {
         })
         .await;
 
-    //TODO: Change this for loop to be a stream using for_each_concurrent? (stream::iter())
     let monthly_playlists = monthly_playlists.lock().await;
-    for (month, (month_id, tracks)) in zip(monthly_playlists.keys(), monthly_playlists.values()) {
-        playlists::move_songs(&spotify, &playlist_id, month_id, pitem_to_pid(tracks)).await?;
-        spotify
-            .playlist_unfollow(month_id)
-            .await
-            .context("Error unfollowing playlist: {}")?;
-    }
+    stream::iter(
+        zip(monthly_playlists.keys(), monthly_playlists.values()).map(|z| -> Result<_> { Ok(z) }),
+    )
+    .try_for_each_concurrent(None, |(month, (month_id, tracks))| {
+        // Have to move month and tracks inside of async, and reference spotify and playlist_id
+        let spotify = &spotify;
+        let playlist_id = &playlist_id;
+        async move {
+            println!("Doing month: {:?} -- {}", month, month_id);
+            playlists::move_songs(spotify, playlist_id, month_id, pitem_to_pid(tracks)).await?;
+            playlists::unfollow_playlist_recursive(spotify, month_id)
+                .await
+                .context(format!("Unfollowing playlist: {:?}", &month))?;
+            Ok(())
+        }
+    })
+    .await?;
 
     Ok(())
 }
