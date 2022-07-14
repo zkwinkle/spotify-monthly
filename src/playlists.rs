@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use async_recursion::async_recursion;
 use chrono::prelude::*;
-use futures::join;
+use futures::{join, Future};
 use num_traits::cast::FromPrimitive;
 use reqwest::StatusCode;
 use rspotify::{prelude::*, AuthCodePkceSpotify, ClientError, ClientResult};
@@ -11,8 +11,6 @@ use rspotify_model::{
     PlayableItem, PlaylistItem,
 };
 use tokio::time::{sleep, Duration};
-
-//use std::str::FromStr;
 
 const RETRY_TIME: u64 = 200; // in ms
 const RATE_LIMIT_TIME: u64 = 4000; // in ms
@@ -33,50 +31,82 @@ impl MonthlyPlaylist {
     }
 }
 
-/// Function to call to start recursive process, just calls add_recursive with a 0 in retries
+/// Function to call to start recursive process, adding process
 async fn add_recursive<'a, T>(
     spotify: &AuthCodePkceSpotify,
     to_p: &PlaylistId,
     tracks: T,
 ) -> ClientResult<rspotify_model::PlaylistResult>
 where
-    T: IntoIterator<Item = &'a dyn PlayableId> + Send + Clone + 'a,
+    T: IntoIterator<Item = &'a dyn PlayableId> + Send + Clone + Sync + 'a,
 {
-    _add_recursive(spotify, to_p, tracks, 0).await
+    let closure = move || {
+        let tracks_clone = tracks.clone(); // Need a longer lived borrow
+        async move { spotify.playlist_add_items(to_p, tracks_clone, None).await }
+    };
+    _recursive_call(closure, 0).await
+}
+
+/// Function to call to start recursive process removing process
+async fn remove_recursive<'a, T>(
+    spotify: &AuthCodePkceSpotify,
+    from_p: &PlaylistId,
+    tracks: T,
+) -> ClientResult<rspotify_model::PlaylistResult>
+where
+    T: IntoIterator<Item = &'a dyn PlayableId> + Send + Clone + Sync + 'a,
+{
+    let closure = move || {
+        let tracks_clone = tracks.clone(); // Need a longer lived borrow
+        async move {
+            spotify
+                .playlist_remove_all_occurrences_of_items(from_p, tracks_clone, None)
+                .await
+        }
+    };
+    _recursive_call(closure, 0).await
+}
+
+#[allow(dead_code)]
+pub async fn unfollow_playlist_recursive(
+    spotify: &AuthCodePkceSpotify,
+    playlist_id: &PlaylistId,
+) -> Result<()> {
+    // TODO: Give it the actual recursive treatment
+    if let Err(client_error) = spotify.playlist_unfollow(playlist_id).await {
+        eprintln!("Error unfollowing playlist: {:#?}", client_error);
+    }
+    Ok(())
 }
 
 #[async_recursion]
-async fn _add_recursive<'a, T>(
-    spotify: &AuthCodePkceSpotify,
-    to_p: &PlaylistId,
-    tracks: T,
-    retries: u32,
-) -> ClientResult<rspotify_model::PlaylistResult>
+async fn _recursive_call<F, T, Fut>(f: F, retries: u32) -> ClientResult<T>
 where
-    T: IntoIterator<Item = &'a dyn PlayableId> + Send + Clone + 'a,
+    F: Fn() -> Fut + Send + Sync, //Pin<Box<dyn Future<Output = ClientResult<T>> + Send>> + Send + Sync,
+    Fut: Future<Output = ClientResult<T>> + Send,
+    T: Send,
 {
-    let tracks_clone = tracks.clone(); // Need a longer lived borrow
-    let res_add = spotify.playlist_add_items(to_p, tracks_clone, None).await;
+    let res = f().await;
     if retries >= MAX_RETRIES {
-        return res_add;
+        return res;
     }
 
-    match res_add {
+    match res {
         Err(ClientError::Http(box HttpError::StatusCode(ref resp))) => match resp.status() {
             StatusCode::NOT_FOUND
             | StatusCode::BAD_GATEWAY
             | StatusCode::SERVICE_UNAVAILABLE
             | StatusCode::INTERNAL_SERVER_ERROR => {
                 sleep(Duration::from_millis(RETRY_TIME)).await;
-                add_recursive(spotify, to_p, tracks).await
+                _recursive_call(f, retries + 1).await
             }
             StatusCode::TOO_MANY_REQUESTS => {
                 sleep(Duration::from_millis(RATE_LIMIT_TIME)).await;
-                add_recursive(spotify, to_p, tracks).await
+                _recursive_call(f, retries + 1).await
             }
-            _ => res_add,
+            _ => res,
         },
-        _ => res_add,
+        _ => res,
     }
 }
 
@@ -87,11 +117,10 @@ pub async fn move_songs<'a, T>(
     tracks: T,
 ) -> Result<()>
 where
-    T: IntoIterator<Item = &'a dyn PlayableId> + Send + Clone + 'a,
+    T: IntoIterator<Item = &'a dyn PlayableId> + Send + Sync + Clone + 'a,
 {
-    // TODO: also handle deleting errors recursively
     // TODO: actually remove the songs once this shid is rdy
-    //let remove = spotify.playlist_remove_all_occurrences_of_items(from_p, tracks.clone(), None);
+    //let remove = remove_recursive(spotify, from_p, tracks.clone());
     let remove = futures::future::ready(Result::<()>::Ok(()));
 
     let add = add_recursive(spotify, to_p, tracks);
@@ -104,13 +133,6 @@ where
 
     Ok(())
 }
-//pub async fn add_song_to_playlist(
-//    spotify: &AuthCodePkceSpotify,
-//    playlist_id: &PlaylistId,
-//    track_id: &dyn PlayableId,
-//) -> Result<()> {
-//    Ok(())
-//}
 
 #[allow(unused_variables)]
 pub async fn create_playlist(
@@ -130,18 +152,6 @@ pub async fn create_playlist(
         .user_playlist_create(user_id, name, Some(public), Some(false), None)
         .await?
         .id)
-}
-
-#[allow(dead_code)]
-pub async fn unfollow_playlist_recursive(
-    spotify: &AuthCodePkceSpotify,
-    playlist_id: &PlaylistId,
-) -> Result<()> {
-    // TODO: Give it same treatment as adding recursively
-    if let Err(client_error) = spotify.playlist_unfollow(playlist_id).await {
-        eprintln!("Error unfollowing playlist: {:#?}", client_error);
-    }
-    Ok(())
 }
 
 #[allow(dead_code)]
