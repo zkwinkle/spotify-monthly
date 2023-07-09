@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use async_recursion::async_recursion;
 use chrono::prelude::*;
-use futures::{join, Future};
+use futures::Future;
 use num_traits::cast::FromPrimitive;
 use reqwest::StatusCode;
 use rspotify::{prelude::*, AuthCodePkceSpotify, ClientError, ClientResult};
@@ -31,7 +31,7 @@ impl MonthlyPlaylist {
     }
 }
 
-/// Function to call to start recursive process, adding process
+/// Function to call to start recursive adding process
 async fn add_recursive<'a, T>(
     spotify: &AuthCodePkceSpotify,
     to_p: &PlaylistId,
@@ -47,7 +47,7 @@ where
     _recursive_call(closure, 0).await
 }
 
-/// Function to call to start recursive process removing process
+/// Function to call to start recursive removing process
 async fn remove_recursive<'a, T>(
     spotify: &AuthCodePkceSpotify,
     from_p: &PlaylistId,
@@ -71,12 +71,12 @@ where
 pub async fn unfollow_playlist_recursive(
     spotify: &AuthCodePkceSpotify,
     playlist_id: &PlaylistId,
-) -> Result<()> {
-    // TODO: Give it the actual recursive treatment
-    if let Err(client_error) = spotify.playlist_unfollow(playlist_id).await {
-        eprintln!("Error unfollowing playlist: {:#?}", client_error);
-    }
-    Ok(())
+) -> ClientResult<()> {
+    let closure = move || {
+        let playlist_id_clone = playlist_id.clone(); // Need a longer lived borrow
+        async move { spotify.playlist_unfollow(&playlist_id_clone).await }
+    };
+    _recursive_call(closure, 0).await
 }
 
 #[async_recursion]
@@ -119,17 +119,17 @@ pub async fn move_songs<'a, T>(
 where
     T: IntoIterator<Item = &'a dyn PlayableId> + Send + Sync + Clone + 'a,
 {
+    println!("Moving to: {}", to_p);
+
+    let add = add_recursive(spotify, to_p, tracks);
+    add.await.context("Adding tracks to new playlist")?;
+
     // TODO: actually remove the songs once this shid is rdy
     //let remove = remove_recursive(spotify, from_p, tracks.clone());
     let remove = futures::future::ready(Result::<()>::Ok(()));
-
-    let add = add_recursive(spotify, to_p, tracks);
-
-    let (res_remove, res_add) = join!(remove, add);
-
-    println!("Checking on: {}", to_p);
-    res_remove.context("Removing tracks from managed playlist")?;
-    res_add.context("Adding tracks to new playlist")?;
+    remove
+        .await
+        .context("Removing tracks from managed playlist")?;
 
     Ok(())
 }
@@ -147,7 +147,6 @@ pub async fn create_playlist(
     let date = Local.ymd(monthly.year as i32, monthly.month.number_from_month(), 1);
     let name: &str = &date.format_localized(format_str, lang).to_string();
 
-    //Ok(PlaylistId::from_str("3jkp8yVGbbIaQ5TOnFEhA9")?)
     Ok(spotify
         .user_playlist_create(user_id, name, Some(public), Some(false), None)
         .await?

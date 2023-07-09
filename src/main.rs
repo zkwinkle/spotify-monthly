@@ -9,10 +9,14 @@ use chrono::prelude::*;
 use futures::join;
 use futures::prelude::*;
 use playlists::MonthlyPlaylist;
+use rspotify::AuthCodePkceSpotify;
 use rspotify::{prelude::*, ClientResult};
+use rspotify_model::PrivateUser;
 use rspotify_model::{enums::misc::Market, idtypes::PlaylistId, PlayableItem, PlaylistItem};
 use std::{collections::hash_map::HashMap, iter::zip, str::FromStr, sync::Arc};
 use tokio::sync::Mutex;
+
+type MonthlyHashMap = HashMap<MonthlyPlaylist, (PlaylistId, Vec<PlayableItem>)>;
 
 //const PLAYLIST_ID: &str = "3jkp8yVGbbIaQ5TOnFEhA9";
 //cyber-goth
@@ -50,7 +54,6 @@ async fn main() -> Result<()> {
     //    return Err(anyhow!("Authenticated user does not own the playlist provided. You must own the playlist chosen for this program."));
     //}
 
-    type MonthlyHashMap = HashMap<MonthlyPlaylist, (PlaylistId, Vec<PlayableItem>)>;
     let monthly_playlists: Arc<Mutex<MonthlyHashMap>> = Arc::new(Mutex::new(HashMap::new()));
 
     let today = Utc::today();
@@ -59,37 +62,8 @@ async fn main() -> Result<()> {
     spotify
         .playlist_items(&playlist_id, None, Some(&Market::FromToken))
         // in series because async part gets locked anyways
-        .for_each(|p: ClientResult<PlaylistItem>| async {
-            if let Ok(p_item) = p {
-                //playlists::print_item_info(&p_item);
-                if let Some(playable) = p_item.track {
-                    // Only local files return None from id(), we just ignore those
-                    if playable.id().is_some() {
-                        let added_at = p_item.added_at.unwrap();
-                        if added_at < month_start {
-                            let p_item_monthly =
-                                MonthlyPlaylist::new(added_at.year(), added_at.month());
-
-                            let mut monthly_playlists = monthly_playlists.lock().await;
-                            if let Some((_, tracks)) = monthly_playlists.get_mut(&p_item_monthly) {
-                                tracks.push(playable);
-                            } else {
-                                let id = playlists::create_playlist(
-                                    &spotify,
-                                    &user.id,
-                                    PUBLIC,
-                                    p_item_monthly,
-                                    FORMAT_STR,
-                                    LOCALE,
-                                )
-                                .await
-                                .expect("Error cloning playlist");
-                                monthly_playlists.insert(p_item_monthly, (id, vec![playable]));
-                            }
-                        };
-                    }
-                }
-            }
+        .for_each(|p: ClientResult<PlaylistItem>| {
+            create_monthly_playlists(p, &spotify, monthly_playlists.clone(), month_start, &user)
         })
         .await;
 
@@ -102,8 +76,9 @@ async fn main() -> Result<()> {
         let spotify = &spotify;
         let playlist_id = &playlist_id;
         async move {
-            println!("Doing month: {:?} -- {}", month, month_id);
+            println!("Moving songs to month: {:?} -- {}", month, month_id);
             playlists::move_songs(spotify, playlist_id, month_id, pitem_to_pid(tracks)).await?;
+            // TODO: Stop unfollowing once this is ready
             playlists::unfollow_playlist_recursive(spotify, month_id)
                 .await
                 .context(format!("Unfollowing playlist: {:?}", &month))?;
@@ -113,6 +88,46 @@ async fn main() -> Result<()> {
     .await?;
 
     Ok(())
+}
+
+// This function makes the decision of which playlists to create and which
+// songs to add to said playlists
+async fn create_monthly_playlists(
+    p: ClientResult<PlaylistItem>,
+    spotify: &AuthCodePkceSpotify,
+    monthly_playlists: Arc<Mutex<MonthlyHashMap>>,
+    month_start: DateTime<Utc>,
+    user: &PrivateUser,
+) {
+    if let Ok(p_item) = p {
+        //playlists::print_item_info(&p_item);
+        if let Some(playable) = p_item.track {
+            // Only local files return None from id(), we just ignore those
+            if playable.id().is_some() {
+                let added_at = p_item.added_at.unwrap();
+                if added_at < month_start {
+                    let p_item_monthly = MonthlyPlaylist::new(added_at.year(), added_at.month());
+
+                    let mut monthly_playlists = monthly_playlists.lock().await;
+                    if let Some((_, tracks)) = monthly_playlists.get_mut(&p_item_monthly) {
+                        tracks.push(playable);
+                    } else {
+                        let id = playlists::create_playlist(
+                            &spotify,
+                            &user.id,
+                            PUBLIC,
+                            p_item_monthly,
+                            FORMAT_STR,
+                            LOCALE,
+                        )
+                        .await
+                        .expect("Error cloning playlist");
+                        monthly_playlists.insert(p_item_monthly, (id, vec![playable]));
+                    }
+                };
+            }
+        }
+    }
 }
 
 /// Shorthand to convert a Vec of PlayableItem into an iterator of the item's ids, assumes all
