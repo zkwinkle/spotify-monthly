@@ -125,14 +125,12 @@ pub async fn move_songs<'a, T>(
 where
     T: IntoIterator<Item = &'a dyn PlayableId> + Send + Sync + Clone + 'a,
 {
-    println!("Moving to: {}", to_p);
-
-    let add = add_recursive(spotify, to_p, tracks);
+    let add = add_recursive(spotify, to_p, tracks.clone());
     add.await.context("Adding tracks to new playlist")?;
 
-    // TODO: actually remove the songs once this shid is rdy
-    //let remove = remove_recursive(spotify, from_p, tracks.clone());
-    let remove = futures::future::ready(Result::<()>::Ok(()));
+    // TESTING: For testing purposes uncomment/comment
+    let remove = remove_recursive(spotify, from_p, tracks);
+    // let remove = futures::future::ready(Result::<()>::Ok(()));
     remove
         .await
         .context("Removing tracks from managed playlist")?;
