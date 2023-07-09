@@ -60,7 +60,11 @@ where
         let tracks_clone = tracks.clone(); // Need a longer lived borrow
         async move {
             spotify
-                .playlist_remove_all_occurrences_of_items(from_p, tracks_clone, None)
+                .playlist_remove_all_occurrences_of_items(
+                    from_p,
+                    tracks_clone,
+                    None,
+                )
                 .await
         }
     };
@@ -92,20 +96,22 @@ where
     }
 
     match res {
-        Err(ClientError::Http(box HttpError::StatusCode(ref resp))) => match resp.status() {
-            StatusCode::NOT_FOUND
-            | StatusCode::BAD_GATEWAY
-            | StatusCode::SERVICE_UNAVAILABLE
-            | StatusCode::INTERNAL_SERVER_ERROR => {
-                sleep(Duration::from_millis(RETRY_TIME)).await;
-                _recursive_call(f, retries + 1).await
+        Err(ClientError::Http(box HttpError::StatusCode(ref resp))) => {
+            match resp.status() {
+                StatusCode::NOT_FOUND
+                | StatusCode::BAD_GATEWAY
+                | StatusCode::SERVICE_UNAVAILABLE
+                | StatusCode::INTERNAL_SERVER_ERROR => {
+                    sleep(Duration::from_millis(RETRY_TIME)).await;
+                    _recursive_call(f, retries + 1).await
+                }
+                StatusCode::TOO_MANY_REQUESTS => {
+                    sleep(Duration::from_millis(RATE_LIMIT_TIME)).await;
+                    _recursive_call(f, retries + 1).await
+                }
+                _ => res,
             }
-            StatusCode::TOO_MANY_REQUESTS => {
-                sleep(Duration::from_millis(RATE_LIMIT_TIME)).await;
-                _recursive_call(f, retries + 1).await
-            }
-            _ => res,
-        },
+        }
         _ => res,
     }
 }
@@ -144,7 +150,8 @@ pub async fn create_playlist(
     lang: Locale,
 ) -> Result<PlaylistId> {
     println!("New monthly: {:?}", monthly);
-    let date = Local.ymd(monthly.year as i32, monthly.month.number_from_month(), 1);
+    let date =
+        Local.ymd(monthly.year as i32, monthly.month.number_from_month(), 1);
     let name: &str = &date.format_localized(format_str, lang).to_string();
 
     Ok(spotify
@@ -168,7 +175,9 @@ pub fn print_item_info(p_item: &PlaylistItem) {
                     .collect::<String>();
                 String::from(&artists[0..artists.len() - 2])
             }),
-            PlayableItem::Episode(episode) => (&episode.name, episode.show.publisher.clone()),
+            PlayableItem::Episode(episode) => {
+                (&episode.name, episode.show.publisher.clone())
+            }
         };
         println!(
             "{} -- {} | Added: {}",

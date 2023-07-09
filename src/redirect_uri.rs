@@ -31,9 +31,9 @@ pub fn redirect_uri_web_server(
             match listener.incoming().next() {
                 Some(Ok(stream)) => {
                     if let Some(url) = handle_connection(stream) {
-                        return spotify
-                            .parse_response_code(&url)
-                            .ok_or_else(|| anyhow!("Unable to parse the response code"));
+                        return spotify.parse_response_code(&url).ok_or_else(
+                            || anyhow!("Unable to parse the response code"),
+                        );
                     }
                 }
                 Some(Err(e)) => {
@@ -67,7 +67,10 @@ fn handle_connection(mut stream: TcpStream) -> Option<String> {
             respond_with_error("Malformed request".to_owned(), stream);
         }
         Err(e) => {
-            respond_with_error(format!("Invalid UTF-8 sequence: {}", e), stream);
+            respond_with_error(
+                format!("Invalid UTF-8 sequence: {}", e),
+                stream,
+            );
         }
     };
 

@@ -1,6 +1,8 @@
 use crate::redirect_uri;
 use anyhow::{anyhow, Result};
-use rspotify::{prelude::*, scopes, AuthCodePkceSpotify, Config, Credentials, OAuth};
+use rspotify::{
+    prelude::*, scopes, AuthCodePkceSpotify, Config, Credentials, OAuth,
+};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -70,7 +72,10 @@ pub async fn prompt_token_auto(
 }
 
 /// get token automatically with local webserver
-pub async fn get_token_auto(spotify: &mut AuthCodePkceSpotify, port: u16) -> Result<()> {
+pub async fn get_token_auto(
+    spotify: &mut AuthCodePkceSpotify,
+    port: u16,
+) -> Result<()> {
     let url = spotify.get_authorize_url(None)?;
 
     match spotify.read_token_cache(true).await {
@@ -86,11 +91,14 @@ pub async fn get_token_auto(spotify: &mut AuthCodePkceSpotify, port: u16) -> Res
                 match spotify.refetch_token().await? {
                     Some(refreshed_token) => {
                         log::info!("Successfully refreshed expired token from token cache");
-                        *spotify.get_token().lock().await.unwrap() = Some(refreshed_token);
+                        *spotify.get_token().lock().await.unwrap() =
+                            Some(refreshed_token);
                     }
                     // If not, prompt the user for it
                     None => {
-                        log::info!("Unable to refresh expired token from token cache");
+                        log::info!(
+                            "Unable to refresh expired token from token cache"
+                        );
                         prompt_token_auto(spotify, &url, port).await?
                     }
                 }

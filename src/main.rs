@@ -12,7 +12,9 @@ use playlists::MonthlyPlaylist;
 use rspotify::AuthCodePkceSpotify;
 use rspotify::{prelude::*, ClientResult};
 use rspotify_model::PrivateUser;
-use rspotify_model::{enums::misc::Market, idtypes::PlaylistId, PlayableItem, PlaylistItem};
+use rspotify_model::{
+    enums::misc::Market, idtypes::PlaylistId, PlayableItem, PlaylistItem,
+};
 use std::{collections::hash_map::HashMap, iter::zip, str::FromStr, sync::Arc};
 use tokio::sync::Mutex;
 
@@ -44,7 +46,8 @@ async fn main() -> Result<()> {
     let user = spotify.me();
 
     let playlist_id = PlaylistId::from_str(PLAYLIST_ID)?;
-    let playlist = spotify.playlist(&playlist_id, None, Some(&Market::FromToken));
+    let playlist =
+        spotify.playlist(&playlist_id, None, Some(&Market::FromToken));
 
     let (user, playlist) = join!(user, playlist);
     let (user, playlist) = (user?, playlist?);
@@ -54,22 +57,31 @@ async fn main() -> Result<()> {
     //    return Err(anyhow!("Authenticated user does not own the playlist provided. You must own the playlist chosen for this program."));
     //}
 
-    let monthly_playlists: Arc<Mutex<MonthlyHashMap>> = Arc::new(Mutex::new(HashMap::new()));
+    let monthly_playlists: Arc<Mutex<MonthlyHashMap>> =
+        Arc::new(Mutex::new(HashMap::new()));
 
     let today = Utc::today();
-    let month_start: DateTime<Utc> = Utc.ymd(today.year(), today.month(), 1).and_hms(0, 0, 0);
+    let month_start: DateTime<Utc> =
+        Utc.ymd(today.year(), today.month(), 1).and_hms(0, 0, 0);
 
     spotify
         .playlist_items(&playlist_id, None, Some(&Market::FromToken))
         // in series because async part gets locked anyways
         .for_each(|p: ClientResult<PlaylistItem>| {
-            create_monthly_playlists(p, &spotify, monthly_playlists.clone(), month_start, &user)
+            create_monthly_playlists(
+                p,
+                &spotify,
+                monthly_playlists.clone(),
+                month_start,
+                &user,
+            )
         })
         .await;
 
     let monthly_playlists = monthly_playlists.lock().await;
     stream::iter(
-        zip(monthly_playlists.keys(), monthly_playlists.values()).map(|z| -> Result<_> { Ok(z) }),
+        zip(monthly_playlists.keys(), monthly_playlists.values())
+            .map(|z| -> Result<_> { Ok(z) }),
     )
     .try_for_each_concurrent(None, |(month, (month_id, tracks))| {
         // Have to move month and tracks inside of async, and reference spotify and playlist_id
@@ -77,7 +89,13 @@ async fn main() -> Result<()> {
         let playlist_id = &playlist_id;
         async move {
             println!("Moving songs to month: {:?} -- {}", month, month_id);
-            playlists::move_songs(spotify, playlist_id, month_id, pitem_to_pid(tracks)).await?;
+            playlists::move_songs(
+                spotify,
+                playlist_id,
+                month_id,
+                pitem_to_pid(tracks),
+            )
+            .await?;
             // TODO: Stop unfollowing once this is ready
             playlists::unfollow_playlist_recursive(spotify, month_id)
                 .await
@@ -106,10 +124,13 @@ async fn create_monthly_playlists(
             if playable.id().is_some() {
                 let added_at = p_item.added_at.unwrap();
                 if added_at < month_start {
-                    let p_item_monthly = MonthlyPlaylist::new(added_at.year(), added_at.month());
+                    let p_item_monthly =
+                        MonthlyPlaylist::new(added_at.year(), added_at.month());
 
                     let mut monthly_playlists = monthly_playlists.lock().await;
-                    if let Some((_, tracks)) = monthly_playlists.get_mut(&p_item_monthly) {
+                    if let Some((_, tracks)) =
+                        monthly_playlists.get_mut(&p_item_monthly)
+                    {
                         tracks.push(playable);
                     } else {
                         let id = playlists::create_playlist(
@@ -122,7 +143,8 @@ async fn create_monthly_playlists(
                         )
                         .await
                         .expect("Error cloning playlist");
-                        monthly_playlists.insert(p_item_monthly, (id, vec![playable]));
+                        monthly_playlists
+                            .insert(p_item_monthly, (id, vec![playable]));
                     }
                 };
             }
@@ -132,6 +154,8 @@ async fn create_monthly_playlists(
 
 /// Shorthand to convert a Vec of PlayableItem into an iterator of the item's ids, assumes all
 /// PlayableItem have ids by calling unwrap()
-fn pitem_to_pid(vec: &[PlayableItem]) -> impl Iterator<Item = &dyn PlayableId> + Clone {
+fn pitem_to_pid(
+    vec: &[PlayableItem],
+) -> impl Iterator<Item = &dyn PlayableId> + Clone {
     vec.iter().map(|item| item.id().unwrap())
 }
