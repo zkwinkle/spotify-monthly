@@ -6,14 +6,15 @@ mod redirect_uri;
 
 use anyhow::{anyhow, Context, Result};
 use chrono::prelude::*;
-use futures::join;
-use futures::prelude::*;
+use futures::{join, prelude::*};
 use playlists::MonthlyPlaylist;
-use rspotify::AuthCodePkceSpotify;
-use rspotify::{prelude::*, ClientResult};
-use rspotify_model::PrivateUser;
-use rspotify_model::{
-    enums::misc::Market, idtypes::PlaylistId, PlayableItem, PlaylistItem,
+use rspotify::{
+    model::{
+        enums::misc::Market, idtypes::PlaylistId, PlayableItem, PlaylistItem,
+        PrivateUser,
+    },
+    prelude::*,
+    AuthCodePkceSpotify, ClientResult,
 };
 use std::{collections::hash_map::HashMap, iter::zip, str::FromStr, sync::Arc};
 use tokio::sync::Mutex;
@@ -56,9 +57,10 @@ async fn main() -> Result<()> {
     let monthly_playlists: Arc<Mutex<MonthlyHashMap>> =
         Arc::new(Mutex::new(HashMap::new()));
 
-    let today = Utc::today();
-    let month_start: DateTime<Utc> =
-        Utc.ymd(today.year(), today.month(), 1).and_hms(0, 0, 0);
+    let today = Utc::now();
+    let month_start: DateTime<Utc> = Utc
+        .with_ymd_and_hms(today.year(), today.month(), 1, 0, 0, 0)
+        .unwrap();
     let month_start = sub_months(month_start, MONTHS_BUFFER);
     println!("Month start: {:?}", month_start);
 
@@ -132,7 +134,7 @@ async fn create_monthly_playlists(
                         tracks.push(playable);
                     } else {
                         let id = playlists::create_playlist(
-                            &spotify,
+                            spotify,
                             &user.id,
                             PUBLIC,
                             p_item_monthly,

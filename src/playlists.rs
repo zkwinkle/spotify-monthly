@@ -4,11 +4,14 @@ use chrono::prelude::*;
 use futures::Future;
 use num_traits::cast::FromPrimitive;
 use reqwest::StatusCode;
-use rspotify::{prelude::*, AuthCodePkceSpotify, ClientError, ClientResult};
-use rspotify_http::HttpError;
-use rspotify_model::{
-    idtypes::{PlaylistId, UserId},
-    PlayableItem, PlaylistItem,
+use rspotify::{
+    http::HttpError,
+    model::{
+        idtypes::{PlaylistId, UserId},
+        PlayableItem, PlaylistItem, PlaylistResult,
+    },
+    prelude::*,
+    AuthCodePkceSpotify, ClientError, ClientResult,
 };
 use tokio::time::{sleep, Duration};
 
@@ -36,7 +39,7 @@ async fn add_recursive<'a, T>(
     spotify: &AuthCodePkceSpotify,
     to_p: &PlaylistId,
     tracks: T,
-) -> ClientResult<rspotify_model::PlaylistResult>
+) -> ClientResult<PlaylistResult>
 where
     T: IntoIterator<Item = &'a dyn PlayableId> + Send + Clone + Sync + 'a,
 {
@@ -52,7 +55,7 @@ async fn remove_recursive<'a, T>(
     spotify: &AuthCodePkceSpotify,
     from_p: &PlaylistId,
     tracks: T,
-) -> ClientResult<rspotify_model::PlaylistResult>
+) -> ClientResult<PlaylistResult>
 where
     T: IntoIterator<Item = &'a dyn PlayableId> + Send + Clone + Sync + 'a,
 {
@@ -148,8 +151,17 @@ pub async fn create_playlist(
     lang: Locale,
 ) -> Result<PlaylistId> {
     println!("New monthly: {:?}", monthly);
-    let date =
-        Local.ymd(monthly.year as i32, monthly.month.number_from_month(), 1);
+    let date = Local
+        .with_ymd_and_hms(
+            monthly.year,
+            monthly.month.number_from_month(),
+            1,
+            0,
+            0,
+            0,
+        )
+        .unwrap()
+        .date_naive();
     let name: &str = &date.format_localized(format_str, lang).to_string();
 
     Ok(spotify

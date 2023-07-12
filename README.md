@@ -20,3 +20,4 @@ Automatically manage monthly playlists!
 - logging of errors (if i plan on running it automatically)
 - Instructions
 - PR to fix playlist_remove_all_occurrences_of_items() docs (add instead of remove)
+- Upgrade rspotify to 12.0 when that comes out

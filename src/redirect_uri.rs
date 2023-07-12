@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use rspotify::{auth_code_pkce::AuthCodePkceSpotify, prelude::*};
+use rspotify::{prelude::*, AuthCodePkceSpotify};
 use std::{
     io::prelude::*,
     net::{Shutdown, TcpListener, TcpStream},
